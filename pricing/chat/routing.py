@@ -141,7 +141,7 @@ def keyword_route(question: str, categories: list[str]) -> ChatRoute:
     elif skus or category:
         intent = "product"
     else:
-        intent = "platform"
+        intent = "unsupported"
 
     return ChatRoute(
         intent=intent,

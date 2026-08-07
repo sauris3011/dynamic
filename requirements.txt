@@ -52,8 +52,9 @@ numpy>=2.1.0
 pandas>=2.2.3
 scipy>=1.14.1
 
-# --- Reliability (NFR-021) ---
+# --- Reliability & Safety (NFR-021) ---
 tenacity>=9.0.0
+better-profanity>=0.7.0
 
 # --- Observability: Langfuse + always-on local JSONL sink (D12, NFR-028) ---
 structlog>=24.4.0
