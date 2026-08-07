@@ -15,6 +15,7 @@ dist/
 venv/
 env/
 .pytest_cache/
+.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 .ipynb_checkpoints/

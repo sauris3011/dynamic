@@ -273,6 +273,30 @@ function Opening({
   );
 }
 
+function FormattedText({ text }: { text: string }) {
+  if (!text) return null;
+  const parts = text.split(/(\*\*.*?\*\*|~~.*?~~|\*.*?\*|`.*?`)/g);
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+          return <strong key={index} className="font-semibold text-ink">{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith('~~') && part.endsWith('~~') && part.length > 4) {
+          return <span key={index} className="line-through text-faint opacity-80">{part.slice(2, -2)}</span>;
+        }
+        if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+          return <em key={index} className="italic">{part.slice(1, -1)}</em>;
+        }
+        if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+          return <code key={index} className="px-1 py-0.5 rounded bg-surface border border-line font-mono text-micro">{part.slice(1, -1)}</code>;
+        }
+        return part;
+      })}
+    </>
+  );
+}
+
 function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => void }) {
   const [openEvidence, setOpenEvidence] = useState(false);
   const reply = turn.reply;
@@ -295,7 +319,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
     <div className="space-y-2">
       <div className="flex justify-start">
         <div className="max-w-[92%] rounded-xl rounded-bl-sm px-3 py-2.5 text-xs leading-relaxed border bg-raised border-line text-muted whitespace-pre-line">
-          {reply.answer}
+          <FormattedText text={reply.answer} />
         </div>
       </div>
 
@@ -304,7 +328,9 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
           {reply.key_points.map((point) => (
             <li key={point} className="text-xs text-muted flex gap-2">
               <span className="text-accent mt-1.5 w-1 h-1 rounded-full bg-accent shrink-0" aria-hidden />
-              {point}
+              <div className="flex-1">
+                <FormattedText text={point} />
+              </div>
             </li>
           ))}
         </ul>
@@ -316,7 +342,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
           className="flex gap-2 items-start text-micro text-faint border border-dashed border-line rounded-lg px-2.5 py-2"
         >
           <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden />
-          <span>{caveat}</span>
+          <span><FormattedText text={caveat} /></span>
         </div>
       ))}
 
@@ -347,7 +373,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
           <ul className="space-y-1">
             {reply.facts.map((fact, index) => (
               <li key={`${index}-${fact.slice(0, 24)}`} className="text-micro text-muted leading-snug">
-                {fact}
+                <FormattedText text={fact} />
               </li>
             ))}
           </ul>
