@@ -273,7 +273,7 @@ function Opening({
   );
 }
 
-function FormattedText({ text }: { text: string }) {
+function FormattedInline({ text }: { text: string }) {
   if (!text) return null;
   const parts = text.split(/(\*\*.*?\*\*|~~.*?~~|\*.*?\*|`.*?`)/g);
   return (
@@ -294,6 +294,72 @@ function FormattedText({ text }: { text: string }) {
         return part;
       })}
     </>
+  );
+}
+
+function FormattedText({ text }: { text: string }) {
+  if (!text) return null;
+  const lines = text.split('\n');
+
+  return (
+    <div className="space-y-1.5">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={index} className="h-0.5" />;
+
+        if (trimmed.startsWith('# ')) {
+          return (
+            <h1 key={index} className="text-xs font-bold text-ink border-b border-hairline pb-1 mt-1 mb-1 uppercase tracking-wide">
+              <FormattedInline text={trimmed.slice(2)} />
+            </h1>
+          );
+        }
+        if (trimmed.startsWith('## ')) {
+          return (
+            <h2 key={index} className="text-xs font-bold text-ink mt-1.5 mb-0.5">
+              <FormattedInline text={trimmed.slice(3)} />
+            </h2>
+          );
+        }
+        if (trimmed.startsWith('### ')) {
+          return (
+            <h3 key={index} className="text-xs font-semibold text-ink mt-1 mb-0.5">
+              <FormattedInline text={trimmed.slice(4)} />
+            </h3>
+          );
+        }
+
+        if (/^[-*]\s+/.test(trimmed)) {
+          const content = trimmed.replace(/^[-*]\s+/, '');
+          return (
+            <div key={index} className="flex items-start gap-2 pl-1 text-xs text-muted">
+              <span className="text-accent mt-1.5 w-1 h-1 rounded-full bg-accent shrink-0" aria-hidden />
+              <div className="flex-1 leading-normal">
+                <FormattedInline text={content} />
+              </div>
+            </div>
+          );
+        }
+
+        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+        if (numMatch) {
+          return (
+            <div key={index} className="flex items-start gap-1.5 pl-1 text-xs text-muted">
+              <span className="font-semibold text-accent text-micro shrink-0 mt-0.5">{numMatch[1]}.</span>
+              <div className="flex-1 leading-normal">
+                <FormattedInline text={numMatch[2]} />
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <p key={index} className="text-xs text-muted leading-relaxed">
+            <FormattedInline text={line} />
+          </p>
+        );
+      })}
+    </div>
   );
 }
 
@@ -318,7 +384,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
   return (
     <div className="space-y-2">
       <div className="flex justify-start">
-        <div className="max-w-[92%] rounded-xl rounded-bl-sm px-3 py-2.5 text-xs leading-relaxed border bg-raised border-line text-muted whitespace-pre-line">
+        <div className="max-w-[92%] rounded-xl rounded-bl-sm px-3 py-2.5 text-xs border bg-raised border-line text-muted">
           <FormattedText text={reply.answer} />
         </div>
       </div>
@@ -329,7 +395,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
             <li key={point} className="text-xs text-muted flex gap-2">
               <span className="text-accent mt-1.5 w-1 h-1 rounded-full bg-accent shrink-0" aria-hidden />
               <div className="flex-1">
-                <FormattedText text={point} />
+                <FormattedInline text={point} />
               </div>
             </li>
           ))}
@@ -342,7 +408,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
           className="flex gap-2 items-start text-micro text-faint border border-dashed border-line rounded-lg px-2.5 py-2"
         >
           <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden />
-          <span><FormattedText text={caveat} /></span>
+          <span><FormattedInline text={caveat} /></span>
         </div>
       ))}
 
@@ -373,7 +439,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
           <ul className="space-y-1">
             {reply.facts.map((fact, index) => (
               <li key={`${index}-${fact.slice(0, 24)}`} className="text-micro text-muted leading-snug">
-                <FormattedText text={fact} />
+                <FormattedInline text={fact} />
               </li>
             ))}
           </ul>
