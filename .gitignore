@@ -31,6 +31,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Databases / caches / generated data
+data/
 data/*.db
 data/*.jsonl
 data/chroma/

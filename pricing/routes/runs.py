@@ -89,7 +89,7 @@ def execute_run(state: RunState) -> RunState:
             persistence.save_run(state)
 
         _set_progress(
-            state.run_id, status=state.status, stage="persisted",
+            state.run_id, status="running", stage="persisted",
             sku_count=len(state.priced), bands=state.band_counts(),
             errors=state.errors,
             quality=state.quality.verdict.value if state.quality else None,
@@ -97,8 +97,10 @@ def execute_run(state: RunState) -> RunState:
 
         if state.status == "completed":
             auto = auto_approve_and_push(state.run_id, state.mode)
-            _set_progress(state.run_id, autonomy=auto)
+            _set_progress(state.run_id, status="completed", autonomy=auto)
             logger.info("runs.autonomy_applied", run_id=state.run_id, **auto)
+        else:
+            _set_progress(state.run_id, status=state.status)
     except Exception as exc:  # noqa: BLE001
         logger.exception("runs.execute_failed", run_id=state.run_id)
         _set_progress(state.run_id, status="failed", errors=[str(exc)])

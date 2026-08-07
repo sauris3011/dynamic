@@ -70,7 +70,13 @@ export function RunConsole({
 }) {
   const navigate = useNavigate();
   const action = useActionState();
-  const [runId, setRunId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('pricing_active_run_id');
+    } catch {
+      return null;
+    }
+  });
   const [scopeKind, setScopeKind] = useState<'all' | 'category'>('category');
   const [category, setCategory] = useState(categories[0]);
   const [objective, setObjective] = useState<Objective>('balanced');
@@ -87,7 +93,14 @@ export function RunConsole({
 
   const running = progress.data?.status === 'running' || progress.data?.status === 'queued';
   useEffect(() => {
-    if (!running && runId) void runs.reload();
+    if (!running && runId) {
+      try {
+        sessionStorage.removeItem('pricing_active_run_id');
+      } catch {
+        // ignore
+      }
+      void runs.reload();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
 
@@ -98,6 +111,11 @@ export function RunConsole({
         scope_value: scopeKind === 'category' ? category : null,
         objective,
       });
+      try {
+        sessionStorage.setItem('pricing_active_run_id', result.run_id);
+      } catch {
+        // ignore
+      }
       setRunId(result.run_id);
       onChanged();
       return `Run ${result.run_id} started over ${result.scope} in ${result.mode} mode.`;
