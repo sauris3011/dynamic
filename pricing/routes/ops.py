@@ -1,14 +1,18 @@
-"""Operations: health, runtime config, telemetry, cache stats (W8, FR-065 .. FR-067)."""
+"""Operations: health, runtime config, telemetry, cache stats (W8, FR-065 .. FR-067).
+
+Gateway and per-agent model configuration lives in `routes/gateway.py`, which
+shares this module's `/api/config` surface but not its subject.
+"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from pricing import __version__
 from pricing.clients.commerce import CommerceClient
 from pricing.config import OperatingMode, get_settings
-from pricing.core import telemetry
+from pricing.core import runtime_config, secrets, telemetry
 from pricing.core.logging import get_logger
 from pricing.core.tls import tls_status
 from pricing.db import cache_db
@@ -28,19 +32,6 @@ class ThresholdRequest(BaseModel):
     max_delta_pct: float | None = Field(None, gt=0.0, le=100.0)
     max_variance: float | None = Field(None, gt=0.0)
     margin_buffer_pct: float | None = Field(None, ge=0.0, le=50.0)
-    actor: str = Field("operator", max_length=80)
-
-
-class GatewayRequest(BaseModel):
-    """Settings drawer (FR-066).
-
-    The API key is held in process memory only and never written to disk
-    (NFR-011), so it does not survive a restart. That is deliberate.
-    """
-
-    gateway_url: str | None = None
-    api_key: str | None = None
-    allow_insecure_tls: bool | None = None
     actor: str = Field("operator", max_length=80)
 
 
@@ -83,8 +74,11 @@ def get_config() -> dict:
         overrides = {
             k: get_setting(conn, k)
             for k in ("min_confidence", "max_delta_pct", "max_variance",
-                      "margin_buffer_pct", "gateway_url")
+                      "margin_buffer_pct")
         }
+    persisted = dict(runtime_config.stored_overrides())
+    if runtime_config.stored_api_key():
+        persisted["llm_gateway_api_key"] = "<encrypted>"
     return {
         "mode": _stored_mode().value,
         "modes_available": [m.value for m in OperatingMode],
@@ -96,8 +90,18 @@ def get_config() -> dict:
                 overrides["margin_buffer_pct"] or s.band_margin_buffer_pct
             ),
         },
-        "gateway_url": overrides["gateway_url"] or s.llm_gateway_url,
+        # The live values, after persisted overrides have been applied — not
+        # the `.env` defaults, which is what the operator would otherwise be
+        # shown a restart after changing something here.
+        "gateway_url": s.llm_gateway_url,
         "api_key_set": bool(s.llm_gateway_api_key),
+        # Identifies *which* key is loaded without disclosing it, so a stale
+        # stored credential is distinguishable from the one just pasted.
+        "api_key_fingerprint": secrets.fingerprint(s.llm_gateway_api_key),
+        "api_key_persisted": bool(runtime_config.stored_api_key()),
+        # Which values came from the database rather than the environment. An
+        # operator editing `.env` and seeing no effect needs to be told why.
+        "persisted_overrides": sorted(persisted),
         "tls": tls_status(s),
         "monte_carlo": {"iterations": s.mc_iterations, "seed": s.mc_seed},
         "chunking": {
@@ -110,6 +114,10 @@ def get_config() -> dict:
         "models": {
             "router": s.model_router, "narrator": s.model_narrator,
             "analyst": s.model_analyst, "strategist": s.model_strategist,
+        },
+        "model_roles": {
+            role: getattr(s, field)
+            for role, field in runtime_config.ROLE_FIELDS.items()
         },
         "ports": {"commerce": s.commerce_port, "pricing": s.pricing_port,
                   "ui": s.ui_port},
@@ -145,30 +153,6 @@ def set_thresholds(payload: ThresholdRequest) -> dict:
             audit(conn, actor=payload.actor, event_type="thresholds_changed",
                   entity_type="config", entity_id="bands", **changed)
     return {"changed": changed}
-
-
-@router.put("/config/gateway")
-def set_gateway(payload: GatewayRequest) -> dict:
-    """Update gateway settings from the UI drawer.
-
-    The URL and TLS flag persist; the API key does not touch disk.
-    """
-    s = get_settings()
-    with session() as conn:
-        if payload.gateway_url:
-            set_setting(conn, "gateway_url", payload.gateway_url)
-        if payload.allow_insecure_tls is not None:
-            s.allow_insecure_tls = payload.allow_insecure_tls
-        if payload.api_key:
-            s.llm_gateway_api_key = payload.api_key      # memory only
-        audit(conn, actor=payload.actor, event_type="gateway_config_changed",
-              entity_type="config", entity_id="gateway",
-              url_set=bool(payload.gateway_url),
-              key_set=bool(payload.api_key),
-              insecure_tls=payload.allow_insecure_tls)
-    return {"gateway_url": payload.gateway_url or s.llm_gateway_url,
-            "api_key_set": bool(s.llm_gateway_api_key),
-            "tls": tls_status(s)}
 
 
 @router.get("/telemetry/status")

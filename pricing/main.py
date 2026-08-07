@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from pricing import __version__
 from pricing.config import get_settings
-from pricing.core import telemetry
+from pricing.core import runtime_config, telemetry
 from pricing.core.logging import configure_logging, get_logger
 from pricing.core import tls
 from pricing.core.tls import tls_status
@@ -22,6 +22,7 @@ from pricing.routes import (
     a2a,
     chat,
     feedback,
+    gateway,
     loop,
     metrics,
     ops,
@@ -48,6 +49,12 @@ async def lifespan(app: FastAPI):
     app_db.init_db()
     cache_db.init_db()
 
+    # Gateway URL, key and per-agent model choices made in the settings drawer
+    # live in the app database, not in `.env`. Re-applying them here — after the
+    # schema exists and before anything reads configuration — is what makes
+    # those choices survive a restart (FR-066, FR-067).
+    overrides = runtime_config.apply_persisted(settings)
+
     status = tls_status(settings)
     logger.info(
         "platform.startup",
@@ -56,6 +63,8 @@ async def lifespan(app: FastAPI):
         mode=settings.operating_mode.value,
         tls_mode=status["mode"],
         data_dir=str(settings.data_dir.resolve()),
+        gateway=settings.llm_gateway_url,
+        persisted_overrides=sorted(overrides),
     )
     if not status["secure"]:
         # NFR-019: never let an insecure TLS posture pass quietly.
@@ -107,6 +116,7 @@ app.include_router(simulation.router)
 app.include_router(feedback.router)
 app.include_router(metrics.router)
 app.include_router(ops.router)
+app.include_router(gateway.router)
 app.include_router(products.router)
 app.include_router(chat.router)
 app.include_router(a2a.router)

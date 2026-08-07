@@ -33,6 +33,9 @@ pnpm-debug.log*
 data/*.db
 data/*.jsonl
 data/chroma/
+# Machine-local key that decrypts the stored gateway credential. Committing it
+# would defeat the entire point of encrypting the credential at rest.
+data/.secret.key
 tiktoken_cache/
 *.sqlite
 *.sqlite3

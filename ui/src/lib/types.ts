@@ -165,10 +165,49 @@ export interface PlatformConfig {
   };
   gateway_url: string;
   api_key_set: boolean;
+  /** Short hash identifying which key is loaded. Never the key itself. */
+  api_key_fingerprint: string;
+  /** True when the key survives a restart, rather than living only in memory. */
+  api_key_persisted: boolean;
+  /** Settings fields whose value came from the database, not from .env. */
+  persisted_overrides: string[];
   tls: { mode: string; secure: boolean; detail: string };
   monte_carlo: { iterations: number; seed: number };
   models: Record<string, string>;
+  /** Every assignable role including `embeddings`, which `models` omits. */
+  model_roles: Record<AgentRole, string>;
   ports: Record<string, number>;
+}
+
+/** Roles that get their own model dropdown in the settings drawer (D4). */
+export type AgentRole = 'router' | 'narrator' | 'analyst' | 'strategist' | 'embeddings';
+
+export interface GatewayModels {
+  gateway_url: string;
+  reachable: boolean;
+  models: string[];
+  endpoint: string;
+  error: string;
+  latency_ms: number;
+  roles: Record<AgentRole, string>;
+  /** Assigned aliases the gateway does not list — a misconfiguration (D4). */
+  unknown: Partial<Record<AgentRole, string>>;
+}
+
+export interface ConnectionTest {
+  reachable: boolean;
+  models: string[];
+  latency_ms: number;
+  detail: string;
+  error: string;
+}
+
+export interface ModelTest {
+  ok: boolean;
+  role: string;
+  model: string;
+  latency_ms: number;
+  detail: string;
 }
 
 export interface LoopStatus {

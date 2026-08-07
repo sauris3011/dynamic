@@ -8,12 +8,16 @@
  */
 
 import type {
+  AgentRole,
   AuditEvent,
   CacheStats,
   ChatReply,
   ChatSuggestions,
+  ConnectionTest,
   Convergence,
+  GatewayModels,
   Health,
+  ModelTest,
   LoopStatus,
   MetricsSummary,
   Mode,
@@ -157,7 +161,34 @@ export const api = {
     gateway_url?: string;
     api_key?: string;
     allow_insecure_tls?: boolean;
-  }) => put('/api/config/gateway', { ...body, actor: 'operator' }),
+  }) =>
+    put<{
+      gateway_url: string;
+      api_key_set: boolean;
+      persisted: boolean;
+      gateway: { reachable: boolean; detail: string };
+    }>('/api/config/gateway', { ...body, actor: 'operator' }),
+
+  /** The gateway's live model list — what fills the per-agent dropdowns. */
+  gatewayModels: () => request<GatewayModels>('/api/config/models'),
+  setModels: (roles: Partial<Record<AgentRole, string>>) =>
+    put<{ changed: Record<string, string>; warnings: string[]; roles: Record<AgentRole, string> }>(
+      '/api/config/models',
+      { ...roles, actor: 'operator' },
+    ),
+  /**
+   * Both tests accept an unsaved URL and key, so the drawer can verify a
+   * gateway before it becomes the one the platform runs on. The key travels
+   * up to the backend and is never stored or echoed by the client.
+   */
+  testGateway: (body: { gateway_url?: string; api_key?: string } = {}) =>
+    post<ConnectionTest>('/api/config/gateway/test', body),
+  testModel: (body: {
+    role: AgentRole;
+    model?: string;
+    gateway_url?: string;
+    api_key?: string;
+  }) => post<ModelTest>('/api/config/models/test', body),
   telemetry: () => request<Telemetry>('/api/telemetry/live'),
   telemetryStatus: () =>
     request<{

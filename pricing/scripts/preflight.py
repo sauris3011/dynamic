@@ -105,6 +105,22 @@ def run_checks(expect_running: bool = False) -> list[Check]:
 
         settings = get_settings()
         checks.append(Check("Configuration", True, True, "validated", ""))
+
+        # Settings changed in the UI drawer are persisted in the app database,
+        # not in `.env`. Applying them here means pre-flight checks the gateway
+        # the platform will actually use, rather than the one `.env` names.
+        try:
+            from pricing.core import runtime_config
+            from pricing.db import app_db
+
+            app_db.init_db()
+            runtime_config.apply_persisted(settings)
+        except Exception as exc:  # noqa: BLE001
+            checks.append(
+                Check("Persisted settings", False, False,
+                      f"could not be loaded: {type(exc).__name__}: {exc}",
+                      "Checks below use the .env values instead.")
+            )
     except Exception as exc:
         checks.append(
             Check("Configuration", False, True, f"{type(exc).__name__}: {exc}",

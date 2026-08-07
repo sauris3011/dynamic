@@ -321,3 +321,39 @@ Measured effect: mean absolute forecast error 28.9% → 12.6%.
 `/eval/ground-truth` for the scoring harness. `pricing/clients/commerce.py`
 deliberately has **no wrapper for it**, and says so in the module docstring.
 Reading the answer key mid-run would make the accuracy metric meaningless.
+
+---
+
+## D-10 — The gateway API key is persisted, encrypted, rather than memory-only
+
+**Requirement affected:** NFR-011
+
+NFR-011 has two clauses. The first — credentials never reach the client and are
+never written to disk **in plaintext** — is unchanged and now tested directly
+(`tests/test_gateway_settings.py`). The second — "runtime-supplied keys stay in
+memory" — is deliberately no longer met.
+
+Memory-only meant the drawer's most consequential field silently emptied itself
+on every restart. An operator configured the gateway, restarted for an unrelated
+reason, and narration went quiet with no visible cause: `/api/config` reported
+the URL it had persisted all along, so the settings *looked* correct. A
+protection whose observable effect is a confusing outage gets worked around —
+usually by putting the key back in `.env`, in plaintext, permanently, which is
+strictly worse than what it was avoiding.
+
+So the key is stored, encrypted (`pricing/core/secrets.py`: an HMAC-SHA256
+keystream with encrypt-then-MAC, stdlib only — no new dependency to fetch
+through a proxy). The ciphertext lives in `data/app.db`; the key that decrypts
+it lives in `data/.secret.key`, git-ignored, owner-only where the filesystem
+honours it. Copying the database — the routine way a credential escapes, via a
+backup or a bug report — yields nothing.
+
+**What this does not defend against:** anyone who can already read this user's
+home directory reads both files. On a single-user workstation deployment
+(NFR-001) nothing available would change that. The threat addressed is the
+database leaving the machine, and for that the separation is sufficient.
+
+The UI reflects the change rather than hiding it: the drawer states that the key
+is stored encrypted and survives a restart, and shows an eight-character
+fingerprint so a stale stored credential is distinguishable from a freshly
+pasted one — without the key itself ever reaching the browser (FR-072).
