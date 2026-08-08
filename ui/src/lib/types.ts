@@ -78,6 +78,12 @@ export interface Recommendation {
   oscillating: number;
   rationale: string | null;
   citations_json: string;
+  /**
+   * 1 when a model wrote the rationale, 0 when it is the computed fallback.
+   * Only the highest-impact products of a run get a written explanation, so a
+   * reader has to be able to tell which kind they are looking at.
+   */
+  narrated?: number;
   status: string;
   final_price: number | null;
   created_at: string;
@@ -111,7 +117,38 @@ export interface RunProgress {
   bands?: Partial<Record<Band, number>>;
   errors?: string[];
   quality?: string;
-  autonomy?: Record<string, unknown>;
+
+  /**
+   * What the autonomy policy actually did once the run was saved — as opposed
+   * to `bands`, which is only how each product was *classified*. In Supervised
+   * mode every field here is zero however many products landed in the
+   * auto-approve band.
+   */
+  autonomy?: {
+    auto_approved: number;
+    /** Approved but not sent: the proposed price equals the current one. */
+    held_no_change?: number;
+    pushed: number;
+    batch_key?: string | null;
+    mode?: string;
+    detail?: string;
+  };
+
+  /** When the run was accepted — the client ticks its own clock from this. */
+  started_at?: string;
+  /** Items finished / to do **within the current stage**. */
+  processed?: number;
+  total?: number;
+  /** Weighted fraction of the whole run, 0–1. Caps at 0.99 until it finishes. */
+  overall?: number;
+  /** What it is doing right now, in plain language. */
+  detail?: string;
+  /**
+   * How many products got a model-written explanation. Absent when narration
+   * never ran — which is not the same as zero written explanations out of many,
+   * and must not be displayed as though it were.
+   */
+  narrated?: number;
 }
 
 export interface RunRecord {
@@ -337,6 +374,130 @@ export interface MetricsSummary {
   ai_uplift_pct: number | null;
   recommendations: number;
   outcomes_measured: number;
+}
+
+/**
+ * The five metrics endpoints used to return `Record<string, any>`, which meant
+ * every consumer re-declared the shape inline at its call site. These mirror
+ * `pricing/services/metrics.py` and `pricing/services/scoring.py`.
+ *
+ * Fields the aggregations omit when there is nothing to report (`error` on an
+ * empty score, `agreement` before any baseline exists) are optional here rather
+ * than nullable — an absent key and a null one mean the same thing to the UI.
+ */
+export interface PerformanceMetrics {
+  recommendations: number;
+  price_changes_proposed: number;
+  forecast_revenue_delta: number;
+  forecast_margin_delta: number;
+  mean_confidence: number;
+  by_status: Record<string, number>;
+  decided: number;
+  acceptance_rate: number | null;
+  acceptance_note: string;
+  realized: {
+    measured: number;
+    forecast_revenue: number;
+    realized_revenue: number;
+    mean_abs_error_pct: number;
+    within_20pct: number;
+  };
+}
+
+export interface BaselineCategory {
+  skus: number;
+  ai_revenue_delta: number;
+  mean_ai_price: number;
+  mean_baseline_price: number;
+}
+
+export interface BaselineMetrics {
+  skus: number;
+  /** Present only when `skus` is 0. */
+  detail?: string;
+  agreement?: {
+    same_price: number;
+    ai_higher: number;
+    ai_lower: number;
+    agreement_rate: number;
+  };
+  ai_forecast_revenue_delta?: number;
+  ai_uplift_pct?: number;
+  by_category?: Record<string, BaselineCategory>;
+  note?: string;
+}
+
+export interface Refinement {
+  sku: string;
+  elasticity: number;
+  ci_low: number;
+  ci_high: number;
+  refinement_count: number;
+  total_adjustment: number;
+  updated_at: string;
+}
+
+export interface StabilityMetrics {
+  recommendations: number;
+  oscillating: number;
+  oscillation_rate: number;
+  damped: number;
+  convergence: Convergence;
+  error_trajectory: { measured_at: string; sku: string; error_pct: number }[];
+  refinements: Refinement[];
+  capped_adjustments: number;
+  capped_note: string;
+}
+
+export interface AutonomyMetrics {
+  band_totals: Partial<Record<Band, number>>;
+  band_shares: Partial<Record<Band, number>>;
+  per_run: {
+    run_id: string;
+    started_at: string;
+    auto_approve: number;
+    review: number;
+    escalate: number;
+  }[];
+  auto_approved: number;
+  human_approved: number;
+  auto_approve_rate: number | null;
+  escalation_reasons: { reason: string; count: number }[];
+  mode_history: {
+    ts: string;
+    actor: string;
+    event_type: string;
+    detail: Record<string, unknown>;
+  }[];
+}
+
+export interface ScoredSku {
+  sku: string;
+  category: string;
+  true_elasticity: number;
+  estimated_elasticity: number | null;
+  optimum_price: number;
+  recommended_price: number;
+  baseline_price: number | null;
+  ai_deviation_pct: number;
+  baseline_deviation_pct: number | null;
+  confidence: number;
+  band: Band;
+}
+
+export interface AccuracyMetrics {
+  scored: number;
+  /** Present only when `scored` is 0. */
+  error?: string;
+  high_confidence_skus?: number;
+  ai_mean_deviation_pct?: number;
+  ai_mean_deviation_pct_high_confidence?: number;
+  baseline_mean_deviation_pct?: number;
+  within_10pct_high_confidence?: number;
+  within_10pct_rate?: number | null;
+  target?: string;
+  worst?: ScoredSku[];
+  best?: ScoredSku[];
 }
 
 export type ChatIntent =

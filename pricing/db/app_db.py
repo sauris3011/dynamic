@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS recommendations (
     oscillating            INTEGER NOT NULL DEFAULT 0,
     rationale              TEXT,
     citations_json         TEXT NOT NULL DEFAULT '[]',
+    -- 1 when a model wrote the rationale, 0 when it is the computed fallback.
+    -- Narration covers only the highest-impact SKUs, so a reader needs to know
+    -- which kind of explanation they are looking at (FR-023).
+    narrated               INTEGER NOT NULL DEFAULT 0,
     status                 TEXT NOT NULL, -- pending|approved|rejected|overridden|pushed|failed
     final_price            REAL,
     created_at             TEXT NOT NULL
@@ -226,9 +230,32 @@ def session() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+# Columns added after the first release. `CREATE TABLE IF NOT EXISTS` leaves an
+# existing database untouched, so a new column in SCHEMA would apply to fresh
+# installs only and every read would fail against an older file. Each entry is
+# additive with a default, which is the only shape that is safe to apply blindly
+# to a database that may already hold real runs.
+_ADDED_COLUMNS: list[tuple[str, str, str]] = [
+    ("recommendations", "narrated", "INTEGER NOT NULL DEFAULT 0"),
+]
+
+
+def _apply_additive_migrations(conn: sqlite3.Connection) -> None:
+    for table, column, definition in _ADDED_COLUMNS:
+        existing = {
+            row["name"] for row in conn.execute(f"PRAGMA table_info({table})")
+        }
+        if not existing:
+            continue  # table not created yet; SCHEMA will have handled it
+        if column in existing:
+            continue
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def init_db() -> None:
     with session() as conn:
         conn.executescript(SCHEMA)
+        _apply_additive_migrations(conn)
         conn.execute(
             "INSERT OR IGNORE INTO loop_state (id, running) VALUES (1, 0)"
         )

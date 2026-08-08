@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -12,7 +11,7 @@ from pricing.analytics.optimizer import Objective
 from pricing.config import OperatingMode, get_settings
 from pricing.core.logging import get_logger
 from pricing.db.app_db import get_setting, session
-from pricing.pipeline import persistence
+from pricing.pipeline import persistence, progress
 from pricing.pipeline.execution import auto_approve_and_push
 from pricing.pipeline.orchestrator import run_pipeline
 from pricing.pipeline.state import RunScope, RunState
@@ -20,11 +19,9 @@ from pricing.pipeline.state import RunScope, RunState
 logger = get_logger("pricing.routes.runs")
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
-# Live progress for the UI. In-memory by design: it is ephemeral display state,
-# and the durable record of every run is in app.db.
-_progress: dict[str, dict] = {}
-_lock = threading.Lock()
-
+# Live progress lives in `pipeline.progress` so the stages themselves can report
+# into it without importing the API layer. This module only starts and finishes
+# an entry; everything between comes from the pipeline as it works.
 STAGES = ["data_context", "quantitative", "strategy", "validation", "persisted"]
 
 
@@ -56,12 +53,6 @@ def _current_mode() -> OperatingMode:
     return get_settings().operating_mode
 
 
-def _set_progress(run_id: str, **fields) -> None:
-    with _lock:
-        _progress.setdefault(run_id, {"run_id": run_id, "stages": {}})
-        _progress[run_id].update(fields)
-
-
 def _execute_stages(state: RunState) -> RunState:
     """Run stages 1-4 through LangGraph when it is available (D2).
 
@@ -77,31 +68,38 @@ def _execute_stages(state: RunState) -> RunState:
 
 def execute_run(state: RunState) -> RunState:
     """Run the pipeline, persist it, then apply the autonomy policy."""
-    _set_progress(state.run_id, status="running", stage="data_context")
+    progress.update(
+        state.run_id, status="running", stage="data_context",
+        detail="Starting up.",
+    )
     try:
         state = _execute_stages(state)
 
-        with _lock:
-            entry = _progress.setdefault(state.run_id, {"run_id": state.run_id})
-            entry["stages"] = {k: round(v, 2) for k, v in state.stage_timings.items()}
+        progress.update(
+            state.run_id,
+            stages={k: round(v, 2) for k, v in state.stage_timings.items()},
+            stage="persisted",
+            detail="Saving the results.",
+        )
 
         if state.status in ("completed", "halted", "failed"):
             persistence.save_run(state)
 
-        _set_progress(
-            state.run_id, status=state.status, stage="persisted",
+        progress.finish(
+            state.run_id, status=state.status,
             sku_count=len(state.priced), bands=state.band_counts(),
             errors=state.errors,
             quality=state.quality.verdict.value if state.quality else None,
+            detail="Done.",
         )
 
         if state.status == "completed":
             auto = auto_approve_and_push(state.run_id, state.mode)
-            _set_progress(state.run_id, autonomy=auto)
+            progress.update(state.run_id, autonomy=auto)
             logger.info("runs.autonomy_applied", run_id=state.run_id, **auto)
     except Exception as exc:  # noqa: BLE001
         logger.exception("runs.execute_failed", run_id=state.run_id)
-        _set_progress(state.run_id, status="failed", errors=[str(exc)])
+        progress.finish(state.run_id, status="failed", errors=[str(exc)])
     return state
 
 
@@ -119,7 +117,7 @@ def start_run(payload: RunRequest, background: BackgroundTasks) -> RunAccepted:
         objective=Objective(payload.objective),
         mode=_current_mode(),
     )
-    _set_progress(state.run_id, status="queued", stage="queued")
+    progress.start(state.run_id)
     background.add_task(execute_run, state)
     logger.info(
         "runs.started", run_id=state.run_id, scope=state.scope.describe(),
@@ -133,15 +131,25 @@ def start_run(payload: RunRequest, background: BackgroundTasks) -> RunAccepted:
 
 @router.get("/progress/{run_id}")
 def run_progress(run_id: str) -> dict:
-    """Live stage-by-stage progress for the UI (FR-069)."""
-    with _lock:
-        live = _progress.get(run_id)
+    """Live progress for the UI (FR-069).
+
+    Reports the current stage, how many items it has worked through, and an
+    overall fraction — enough for the client to draw a bar and estimate a
+    finish time, so a slow run is visibly slow rather than indistinguishable
+    from a hung one.
+    """
+    live = progress.get(run_id)
     if live:
         return live
     stored = persistence.get_run(run_id)
     if stored is None:
         raise HTTPException(404, f"No run '{run_id}'")
-    return {"run_id": run_id, "status": stored["status"], "stage": "persisted"}
+    return {
+        "run_id": run_id,
+        "status": stored["status"],
+        "stage": "persisted",
+        "overall": 1.0,
+    }
 
 
 @router.get("/topology")
