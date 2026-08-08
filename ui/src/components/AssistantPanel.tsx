@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import { api } from '../lib/api';
+import { MarkdownText } from './MarkdownText';
 import { Pill } from './primitives';
 import {
   canListen,
@@ -527,9 +528,9 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
       <div className="flex justify-start">
         <div
           className="max-w-[94%] rounded-xl rounded-bl-sm px-3 py-2 text-xs leading-relaxed
-                     border bg-raised border-line text-muted whitespace-pre-line"
+                     border bg-raised border-line text-muted"
         >
-          {reply.answer}
+          <MarkdownText text={reply.answer} />
         </div>
       </div>
 

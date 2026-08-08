@@ -85,8 +85,11 @@ def execute_run(state: RunState) -> RunState:
         if state.status in ("completed", "halted", "failed"):
             persistence.save_run(state)
 
+        # Held at "running" deliberately: the autonomy push below is part of the
+        # run from the operator's side, and flipping to the terminal status here
+        # would show a finished run while approvals are still being written.
         progress.finish(
-            state.run_id, status=state.status,
+            state.run_id, status="running",
             sku_count=len(state.priced), bands=state.band_counts(),
             errors=state.errors,
             quality=state.quality.verdict.value if state.quality else None,
@@ -95,8 +98,10 @@ def execute_run(state: RunState) -> RunState:
 
         if state.status == "completed":
             auto = auto_approve_and_push(state.run_id, state.mode)
-            progress.update(state.run_id, autonomy=auto)
+            progress.update(state.run_id, status="completed", autonomy=auto)
             logger.info("runs.autonomy_applied", run_id=state.run_id, **auto)
+        else:
+            progress.update(state.run_id, status=state.status)
     except Exception as exc:  # noqa: BLE001
         logger.exception("runs.execute_failed", run_id=state.run_id)
         progress.finish(state.run_id, status="failed", errors=[str(exc)])
