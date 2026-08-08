@@ -13,6 +13,7 @@ import {
 
 import { api } from '../lib/api';
 import type { ChatReply, ChatStarter } from '../lib/types';
+import { MarkdownInline, MarkdownText } from './MarkdownText';
 import { Pill } from './primitives';
 
 interface AnalystTurn {
@@ -312,96 +313,6 @@ function Opening({
   );
 }
 
-function FormattedInline({ text }: { text: string }) {
-  if (typeof text !== 'string' || !text) return null;
-  const parts = text.split(/(\*\*.*?\*\*|~~.*?~~|\*.*?\*|`.*?`)/g);
-  return (
-    <>
-      {parts.map((part, index) => {
-        if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-          return <strong key={index} className="font-semibold text-ink">{part.slice(2, -2)}</strong>;
-        }
-        if (part.startsWith('~~') && part.endsWith('~~') && part.length > 4) {
-          return <span key={index} className="line-through text-faint opacity-80">{part.slice(2, -2)}</span>;
-        }
-        if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
-          return <em key={index} className="italic">{part.slice(1, -1)}</em>;
-        }
-        if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-          return <code key={index} className="px-1 py-0.5 rounded bg-surface border border-line font-mono text-micro">{part.slice(1, -1)}</code>;
-        }
-        return part;
-      })}
-    </>
-  );
-}
-
-function FormattedText({ text }: { text: string }) {
-  if (typeof text !== 'string' || !text) return null;
-  const lines = text.split('\n');
-
-  return (
-    <div className="space-y-1.5">
-      {lines.map((line, index) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={index} className="h-0.5" />;
-
-        if (trimmed.startsWith('# ')) {
-          return (
-            <h1 key={index} className="text-xs font-bold text-ink border-b border-hairline pb-1 mt-1 mb-1 uppercase tracking-wide">
-              <FormattedInline text={trimmed.slice(2)} />
-            </h1>
-          );
-        }
-        if (trimmed.startsWith('## ')) {
-          return (
-            <h2 key={index} className="text-xs font-bold text-ink mt-1.5 mb-0.5">
-              <FormattedInline text={trimmed.slice(3)} />
-            </h2>
-          );
-        }
-        if (trimmed.startsWith('### ')) {
-          return (
-            <h3 key={index} className="text-xs font-semibold text-ink mt-1 mb-0.5">
-              <FormattedInline text={trimmed.slice(4)} />
-            </h3>
-          );
-        }
-
-        if (/^[-*]\s+/.test(trimmed)) {
-          const content = trimmed.replace(/^[-*]\s+/, '');
-          return (
-            <div key={index} className="flex items-start gap-2 pl-1 text-xs text-muted">
-              <span className="text-accent mt-1.5 w-1 h-1 rounded-full bg-accent shrink-0" aria-hidden />
-              <div className="flex-1 leading-normal">
-                <FormattedInline text={content} />
-              </div>
-            </div>
-          );
-        }
-
-        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
-        if (numMatch) {
-          return (
-            <div key={index} className="flex items-start gap-1.5 pl-1 text-xs text-muted">
-              <span className="font-semibold text-accent text-micro shrink-0 mt-0.5">{numMatch[1]}.</span>
-              <div className="flex-1 leading-normal">
-                <FormattedInline text={numMatch[2]} />
-              </div>
-            </div>
-          );
-        }
-
-        return (
-          <p key={index} className="text-xs text-muted leading-relaxed">
-            <FormattedInline text={line} />
-          </p>
-        );
-      })}
-    </div>
-  );
-}
-
 function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => void }) {
   const [openEvidence, setOpenEvidence] = useState(false);
   const reply = turn.reply;
@@ -433,7 +344,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
     <div className="space-y-2">
       <div className="flex justify-start">
         <div className="max-w-[92%] rounded-xl rounded-bl-sm px-3 py-2.5 text-xs border bg-raised border-line text-muted">
-          <FormattedText text={reply.answer || ''} />
+          <MarkdownText text={reply.answer || ''} />
         </div>
       </div>
 
@@ -445,7 +356,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
               <li key={`${index}-${strPoint.slice(0, 20)}`} className="text-xs text-muted flex gap-2">
                 <span className="text-accent mt-1.5 w-1 h-1 rounded-full bg-accent shrink-0" aria-hidden />
                 <div className="flex-1">
-                  <FormattedInline text={strPoint} />
+                  <MarkdownInline text={strPoint} />
                 </div>
               </li>
             );
@@ -461,7 +372,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
             className="flex gap-2 items-start text-micro text-faint border border-dashed border-line rounded-lg px-2.5 py-2"
           >
             <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden />
-            <span><FormattedInline text={strCaveat} /></span>
+            <span><MarkdownInline text={strCaveat} /></span>
           </div>
         );
       })}
@@ -496,7 +407,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
               const strFact = typeof fact === 'string' ? fact : String(fact ?? '');
               return (
                 <li key={`${index}-${strFact.slice(0, 24)}`} className="text-micro text-muted leading-snug">
-                  <FormattedInline text={strFact} />
+                  <MarkdownInline text={strFact} />
                 </li>
               );
             })}
