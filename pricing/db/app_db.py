@@ -251,6 +251,18 @@ def _apply_additive_migrations(conn: sqlite3.Connection) -> None:
             continue
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
+        if (table, column) == ("recommendations", "narrated"):
+            # Rows written before the column existed default to 0, which would
+            # label a genuine model-written rationale as computed. Citations are
+            # only ever populated by the narration stage, so their presence is
+            # proof the model wrote it. The reverse does not hold — a narrated
+            # SKU that retrieved no documents has no citations — so this
+            # under-counts rather than over-claims, which is the safe direction.
+            conn.execute(
+                "UPDATE recommendations SET narrated = 1"
+                " WHERE citations_json IS NOT NULL AND citations_json NOT IN ('', '[]')"
+            )
+
 
 def init_db() -> None:
     with session() as conn:
