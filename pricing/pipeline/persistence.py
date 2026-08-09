@@ -78,8 +78,8 @@ def _insert_recommendation(conn, rec_id: str, state: RunState, a: SkuAnalysis) -
         " revenue_ci_high, prob_below_margin, variance, confidence, elasticity,"
         " elasticity_ci_low, elasticity_ci_high, elasticity_samples, baseline_price,"
         " band, band_reason, compliance_status, damped, oscillating, rationale,"
-        " citations_json, status, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " citations_json, narrated, status, created_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             rec_id, state.run_id, a.sku, product.get("name"), product.get("category"),
             a.current_price, opt.recommended_price,
@@ -99,7 +99,7 @@ def _insert_recommendation(conn, rec_id: str, state: RunState, a: SkuAnalysis) -
             "pass" if (a.compliance and a.compliance.passed) else "violation",
             1 if opt.damped else 0,
             1 if (a.stability and a.stability.oscillating) else 0,
-            a.rationale, json.dumps(a.citations),
+            a.rationale, json.dumps(a.citations), 1 if a.narrated else 0,
             "pending", now_iso(),
         ),
     )

@@ -25,7 +25,7 @@ from pricing.config import get_settings
 from pricing.core import telemetry
 from pricing.core.logging import get_logger
 from pricing.feeds.competitor import SyntheticCompetitorFeed, build_positions
-from pricing.pipeline import persistence, rationale
+from pricing.pipeline import persistence, progress, rationale
 from pricing.pipeline.state import RunState, SkuAnalysis, SkuContext
 from pricing.services import feedback
 from pricing.rules.bands import BandThresholds, assign_band
@@ -34,6 +34,7 @@ from pricing.rules.engine import RuleConfig, evaluate
 logger = get_logger("pricing.pipeline")
 
 RECENT_DEMAND_DAYS = 28
+DETAIL = progress.STAGE_DETAIL
 
 
 # =====================================================================
@@ -49,6 +50,7 @@ def stage_data_context(state: RunState, client: CommerceClient) -> RunState:
     t0 = time.time()
     scope = state.scope
     category = scope.value if scope.kind == "category" else None
+    progress.stage(state.run_id, "data_context", detail=DETAIL["data_context"])
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         f_products = pool.submit(client.products, category=category)
@@ -68,6 +70,8 @@ def stage_data_context(state: RunState, client: CommerceClient) -> RunState:
         inventory = [i for i in inventory if i["sku"] in wanted]
 
     # --- Quality gate. A FAIL here halts the run (FR-011). ---------------
+    progress.item(state.run_id, "data_context", 1, 2,
+                  detail=f"Checking {len(products)} products for usable data.")
     report = quality.assess(products, sales, inventory)
     state.quality = report
     if report.failed:
@@ -153,7 +157,11 @@ def stage_quantitative(state: RunState) -> RunState:
     # per run: it is a property of the system's track record, not of one SKU.
     uncertainty = feedback.refined_uncertainty()
 
-    for analysis in state.priced:
+    priced = state.priced
+    progress.stage(state.run_id, "quantitative", total=len(priced),
+                   detail=DETAIL["quantitative"])
+
+    for done, analysis in enumerate(priced, start=1):
         ctx = analysis.context
         est = _refined_estimate(estimate_from_records(analysis.sku, ctx.sales))
         analysis.elasticity = est
@@ -188,6 +196,7 @@ def stage_quantitative(state: RunState) -> RunState:
             seed=s.mc_seed,
             inputs=uncertainty,
         )
+        progress.item(state.run_id, "quantitative", done, len(priced), detail=analysis.sku)
 
     state.stage_timings["quantitative"] = time.time() - t0
     logger.info(
@@ -230,7 +239,11 @@ def stage_strategy(state: RunState) -> RunState:
     t0 = time.time()
     s = get_settings()
 
-    for analysis in state.priced:
+    priced = state.priced
+    progress.stage(state.run_id, "strategy", total=len(priced), detail=DETAIL["strategy"])
+
+    for done, analysis in enumerate(priced, start=1):
+        progress.item(state.run_id, "strategy", done, len(priced), detail=analysis.sku)
         ctx, sim = analysis.context, analysis.simulation
         if sim is None:
             analysis.skipped = "Simulation unavailable."
@@ -281,7 +294,11 @@ def stage_validation(state: RunState) -> RunState:
     )
     quality_warned = bool(state.quality and state.quality.verdict.value == "warn")
 
-    for analysis in state.priced:
+    priced = state.priced
+    progress.stage(state.run_id, "validation", total=len(priced), detail=DETAIL["validation"])
+
+    for done, analysis in enumerate(priced, start=1):
+        progress.item(state.run_id, "validation", done, len(priced), detail=analysis.sku)
         ctx, opt = analysis.context, analysis.optimization
         if opt is None:
             continue

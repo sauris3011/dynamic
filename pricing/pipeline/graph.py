@@ -66,7 +66,10 @@ def _node_narration(state: dict) -> dict:
     Prices are already decided by the time this node executes. If the gateway is
     unreachable, the deterministic rationales from `stage_strategy` stand.
     """
+    import time
+
     run: RunState = state["run"]
+    t0 = time.time()
     try:
         from pricing.pipeline import narration
 
@@ -77,6 +80,10 @@ def _node_narration(state: dict) -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.warning("graph.narration_failed", run_id=run.run_id,
                        error=f"{type(exc).__name__}: {exc}")
+    # Recorded on this path too. Without it narration was absent from
+    # `stage_timings` entirely, so the stage that accounts for most of a run's
+    # wall time was invisible in the timings the Diagnostics tab reports.
+    run.stage_timings["narration"] = time.time() - t0
     run.status = "completed"
     return {"run": run}
 
