@@ -157,8 +157,8 @@ def _compose_prompt(
     wait=wait_exponential(multiplier=0.6, min=0.6, max=6),
     reraise=True,
 )
-def _invoke(model, prompt: str):
-    return model.invoke(prompt)
+def _invoke(model, prompt: str, config: dict[str, Any] | None = None):
+    return model.invoke(prompt, config=config) if config else model.invoke(prompt)
 
 
 def _accumulate_usage(result: LLMResult, message: Any) -> None:
@@ -205,9 +205,11 @@ def _structured_model(model, schema):
         return model.with_structured_output(schema, method="json_schema"), False
 
 
-def _invoke_structured(structured, prompt: str, result: LLMResult):
+def _invoke_structured(
+    structured, prompt: str, result: LLMResult, config: dict[str, Any] | None = None,
+):
     try:
-        output = structured.invoke(prompt)
+        output = structured.invoke(prompt, config=config) if config else structured.invoke(prompt)
     except (ValidationError, ValueError, TypeError, AttributeError) as exc:
         return None, exc
 
@@ -218,11 +220,13 @@ def _invoke_structured(structured, prompt: str, result: LLMResult):
     return output, None
 
 
-def _execute(model, prompt: str, schema, result: LLMResult) -> None:
+def _execute(
+    model, prompt: str, schema, result: LLMResult, config: dict[str, Any] | None = None,
+) -> None:
     if schema is not None:
         try:
             structured, _ = _structured_model(model, schema)
-            parsed, error = _invoke_structured(structured, prompt, result)
+            parsed, error = _invoke_structured(structured, prompt, result, config)
 
             if error is not None or parsed is None:
                 # Exactly one repair-retry (PRD 4.3)
@@ -232,7 +236,7 @@ def _execute(model, prompt: str, schema, result: LLMResult) -> None:
                     f"schema validation:\n{error}\nReturn ONLY valid JSON "
                     f"matching the schema.\n</validation_error>"
                 )
-                parsed, error = _invoke_structured(structured, repair, result)
+                parsed, error = _invoke_structured(structured, repair, result, config)
                 result.repaired = True
                 if error is not None:
                     raise error if isinstance(error, Exception) else ValueError(str(error))
@@ -240,7 +244,7 @@ def _execute(model, prompt: str, schema, result: LLMResult) -> None:
                     raise ValueError("Model returned no parsable object after one repair attempt.")
         except (TypeError, AttributeError):
             # Fallback for local models (e.g. DeepSeek-R1 / LM Studio) without native json_schema support
-            response = _invoke(model, prompt)
+            response = _invoke(model, prompt, config)
             raw_text = getattr(response, "content", str(response))
             _accumulate_usage(result, response)
             cleaned = _extract_json_text(raw_text)
@@ -250,7 +254,7 @@ def _execute(model, prompt: str, schema, result: LLMResult) -> None:
         result.text = parsed.model_dump_json() if hasattr(parsed, "model_dump_json") else str(parsed)
         return
 
-    response = _invoke(model, prompt)
+    response = _invoke(model, prompt, config)
     result.text = getattr(response, "content", str(response))
     _accumulate_usage(result, response)
 
@@ -313,6 +317,9 @@ def call(
     resolved = get_settings().llm_temperature if temperature is None else temperature
 
     result = LLMResult(model=alias, role=role, citations=citations)
+    tracing_config = telemetry.langchain_config(
+        run_id=run_id, user_id="system", tags=["grounded", role],
+    )
     for attempt in (resolved, None):
         result = LLMResult(model=alias, role=role, citations=citations)
         try:
@@ -325,7 +332,7 @@ def call(
             return result
 
         try:
-            _execute(model, prompt, schema, result)
+            _execute(model, prompt, schema, result, tracing_config)
             break
         except Exception as exc:  # noqa: BLE001
             if attempt is not None and _is_temperature_rejection(exc):

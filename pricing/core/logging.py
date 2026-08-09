@@ -21,6 +21,11 @@ SENSITIVE_KEY_PARTS = (
     "authorization", "auth", "credential", "cookie", "session_key",
 )
 
+# Token *credentials* must always be hidden, but usage counters are essential
+# operational telemetry. Check this small explicit allow-list before the broad
+# "token" credential matcher below.
+SAFE_TELEMETRY_KEYS = frozenset({"tokens_in", "tokens_out", "tokens_total"})
+
 # Patterns caught inside free-text values, where a key name gives no warning.
 SENSITIVE_VALUE_PATTERNS = (
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),                    # OpenAI-style keys
@@ -33,6 +38,8 @@ REDACTED = "[REDACTED]"
 
 def _is_sensitive_key(key: str) -> bool:
     lowered = key.lower()
+    if lowered in SAFE_TELEMETRY_KEYS:
+        return False
     return any(part in lowered for part in SENSITIVE_KEY_PARTS)
 
 

@@ -58,7 +58,7 @@ better-profanity>=0.7.0
 
 # --- Observability: Langfuse + always-on local JSONL sink (D12, NFR-028) ---
 structlog>=24.4.0
-langfuse>=2.53.0
+langfuse>=4.0.0
 
 # --- Testing (NFR-033) ---
 pytest>=8.3.3

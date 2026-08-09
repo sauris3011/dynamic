@@ -68,7 +68,7 @@ def _client() -> Any | None:
         client = Langfuse(
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
-            host=settings.langfuse_host,
+            base_url=settings.langfuse_host,
         )
         logger.info("telemetry.langfuse_enabled", host=settings.langfuse_host)
         return client
@@ -81,28 +81,30 @@ def _client() -> Any | None:
         return None
 
 
-def callback_handler(run_id: str | None = None, user_id: str = "operator"):
-    """LangChain callback handler for Langfuse, or None when unavailable.
+def langchain_config(
+    *, run_id: str | None = None, user_id: str = "operator", tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Return the current Langfuse callback configuration for one LC invocation.
 
-    Returned rather than installed globally so a caller can attach it per
-    invocation and tag the trace with the run it belongs to.
+    Langfuse v3+ receives per-run attributes through LangChain's invocation
+    metadata. This keeps the callback tied to the explicitly configured client
+    while grouping all model calls from a pricing run in one Langfuse session.
     """
     if _langfuse_disabled or _client() is None:
-        return None
+        return {}
     try:
-        from langfuse.callback import CallbackHandler
+        from langfuse.langchain import CallbackHandler
 
-        return CallbackHandler(
-            session_id=run_id, user_id=user_id, trace_name="pricing-run"
-        )
-    except Exception:  # noqa: BLE001
-        try:
-            from langfuse.langchain import CallbackHandler  # SDK v3 layout
-
-            return CallbackHandler()
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("telemetry.handler_unavailable", error=str(exc))
-            return None
+        metadata: dict[str, Any] = {
+            "langfuse_user_id": user_id,
+            "langfuse_tags": ["pricing", *(tags or [])],
+        }
+        if run_id:
+            metadata["langfuse_session_id"] = run_id
+        return {"callbacks": [CallbackHandler()], "metadata": metadata}
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("telemetry.handler_unavailable", error=str(exc))
+        return {}
 
 
 def _emit_remote(kind: str, event: dict) -> None:
