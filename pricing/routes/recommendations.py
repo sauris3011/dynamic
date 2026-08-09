@@ -74,8 +74,15 @@ def approve(rec_id: str, payload: DecisionRequest) -> dict:
             "This recommendation breaches a compliance rule and cannot be approved. "
             f"Reason: {rec['band_reason']}",
         )
+    # Approval after an override confirms the decision; it must never replace
+    # the reviewed manual price with the original system recommendation.
+    effective_price = (
+        rec["final_price"]
+        if rec["status"] == "overridden" and rec["final_price"] is not None
+        else rec["recommended_price"]
+    )
     record_decision(rec_id, payload.actor, "approve", payload.reason,
-                    _mode(), rec["recommended_price"])
+                    _mode(), effective_price)
     return {"rec_id": rec_id, "status": "approved"}
 
 

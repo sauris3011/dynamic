@@ -85,13 +85,8 @@ def execute_run(state: RunState) -> RunState:
         if state.status in ("completed", "halted", "failed"):
             persistence.save_run(state)
 
-<<<<<<< HEAD
-        _set_progress(
-            state.run_id, status="running", stage="persisted",
-=======
         progress.finish(
             state.run_id, status=state.status,
->>>>>>> origin/ui-simplify
             sku_count=len(state.priced), bands=state.band_counts(),
             errors=state.errors,
             quality=state.quality.verdict.value if state.quality else None,
@@ -100,14 +95,10 @@ def execute_run(state: RunState) -> RunState:
 
         if state.status == "completed":
             auto = auto_approve_and_push(state.run_id, state.mode)
-<<<<<<< HEAD
-            _set_progress(state.run_id, status="completed", autonomy=auto)
-=======
             progress.update(state.run_id, autonomy=auto)
->>>>>>> origin/ui-simplify
             logger.info("runs.autonomy_applied", run_id=state.run_id, **auto)
         else:
-            _set_progress(state.run_id, status=state.status)
+            progress.update(state.run_id, status=state.status)
     except Exception as exc:  # noqa: BLE001
         logger.exception("runs.execute_failed", run_id=state.run_id)
         progress.finish(state.run_id, status="failed", errors=[str(exc)])

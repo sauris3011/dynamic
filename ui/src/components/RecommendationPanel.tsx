@@ -70,6 +70,9 @@ export function RecommendationPanel({
     );
 
   const r = rec.data;
+  const effectivePrice = r.final_price ?? r.recommended_price;
+  const effectiveDeltaPct =
+    r.current_price === 0 ? 0 : ((effectivePrice - r.current_price) / r.current_price) * 100;
   const blocked = r.compliance_status !== 'pass';
   const citations = safeCitations(r.citations_json);
   const pushable = !blocked && ['approved', 'overridden'].includes(r.status);
@@ -137,12 +140,12 @@ export function RecommendationPanel({
           <div>
             <div className="label">Proposed</div>
             <div className="text-3xl font-light text-accent leading-none mt-1">
-              {money(r.final_price ?? r.recommended_price)}
+              {money(effectivePrice)}
             </div>
           </div>
           <div className="ml-auto text-right">
             <div className="label">Change</div>
-            <div className="text-lg font-light text-ink mt-1">{signedPct(r.delta_pct)}</div>
+            <div className="text-lg font-light text-ink mt-1">{signedPct(effectiveDeltaPct)}</div>
             {r.damped ? (
               <div className="text-tiny text-accent mt-0.5">held back for stability</div>
             ) : null}
@@ -179,6 +182,12 @@ export function RecommendationPanel({
         </div>
       </div>
 
+      {r.status === 'overridden' && (
+        <div className="text-tiny text-accent">
+          Manual price recorded. It will be sent if you choose to send it to the store.
+        </div>
+      )}
+
       {/* --- Actions --- */}
       <div className="space-y-2.5">
         <input
@@ -201,6 +210,10 @@ export function RecommendationPanel({
             >
               Revert to {money(r.current_price)}
             </button>
+          ) : r.status === 'overridden' ? (
+            <div className="btn flex-1 text-center cursor-default text-accent" aria-live="polite">
+              Manual price saved
+            </div>
           ) : (
             <button
               className="btn-primary flex-1"

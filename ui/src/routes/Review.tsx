@@ -274,6 +274,11 @@ export function Review({ onChanged }: { onChanged: () => void }) {
               >
                 {rows.map((rec) => {
                   const active = rec.rec_id === recId;
+                  const effectivePrice = rec.final_price ?? rec.recommended_price;
+                  const effectiveDeltaPct =
+                    rec.current_price === 0
+                      ? 0
+                      : ((effectivePrice - rec.current_price) / rec.current_price) * 100;
                   return (
                     <tr
                       key={rec.rec_id}
@@ -300,10 +305,10 @@ export function Review({ onChanged }: { onChanged: () => void }) {
                         {money(rec.current_price)}
                       </td>
                       <td className="text-right font-semibold text-ink tabular-nums">
-                        {money(rec.recommended_price)}
+                        {money(effectivePrice)}
                       </td>
                       <td className="text-right text-muted tabular-nums">
-                        {signedPct(rec.delta_pct)}
+                        {signedPct(effectiveDeltaPct)}
                       </td>
                       <td className="text-right text-muted tabular-nums">
                         {moneyCompact(rec.expected_revenue_delta)}

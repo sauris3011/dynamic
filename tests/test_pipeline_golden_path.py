@@ -162,6 +162,32 @@ def test_override_is_revalidated_before_acceptance(stack):
     assert "violations" in str(response.json())
 
 
+def test_approval_after_override_preserves_manual_price(stack):
+    """A confirmation must not replace a compliant manual price (FR-025)."""
+    platform, _ = stack
+    run_id = platform.post("/api/runs", json={"scope_kind": "all"}).json()["run_id"]
+    _wait(platform, run_id)
+
+    rec = next(
+        item for item in platform.get("/api/recommendations", params={"run_id": run_id}).json()
+        if item["compliance_status"] == "pass"
+    )
+    manual_price = rec["recommended_price"]
+    overridden = platform.post(
+        f"/api/recommendations/{rec['rec_id']}/override",
+        json={"price": manual_price, "reason": "operator reviewed", "actor": "tester"},
+    )
+    assert overridden.status_code == 200
+
+    approved = platform.post(
+        f"/api/recommendations/{rec['rec_id']}/approve",
+        json={"reason": "confirmed", "actor": "tester"},
+    )
+    assert approved.status_code == 200
+    saved = platform.get(f"/api/recommendations/{rec['rec_id']}").json()
+    assert saved["final_price"] == manual_price
+
+
 def test_run_and_decisions_are_audited(stack):
     """FR-054, FR-059 — append-only, with the actor named."""
     platform, _ = stack
