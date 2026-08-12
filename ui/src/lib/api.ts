@@ -8,8 +8,11 @@
  */
 
 import type {
+  AccuracyMetrics,
   AgentRole,
   AuditEvent,
+  AutonomyMetrics,
+  BaselineMetrics,
   CacheStats,
   ChatReply,
   ChatSuggestions,
@@ -22,6 +25,7 @@ import type {
   MetricsSummary,
   Mode,
   Objective,
+  PerformanceMetrics,
   PlatformConfig,
   Product,
   ProductDetail,
@@ -30,6 +34,7 @@ import type {
   RunProgress,
   RunRecord,
   SimulationResult,
+  StabilityMetrics,
   Telemetry,
 } from './types';
 
@@ -309,17 +314,9 @@ export const api = {
 
   // --- Metrics ------------------------------------------------------------
   metricsSummary: () => request<MetricsSummary>('/api/metrics/summary'),
-  performance: () => request<Record<string, any>>('/api/metrics/performance'),
-  baseline: () => request<Record<string, any>>('/api/metrics/baseline'),
-  stability: () => request<Record<string, any>>('/api/metrics/stability'),
-  autonomy: () => request<Record<string, any>>('/api/metrics/autonomy'),
-  accuracy: () => request<Record<string, any>>('/api/metrics/accuracy'),
+  performance: () => request<PerformanceMetrics>('/api/metrics/performance'),
+  baseline: () => request<BaselineMetrics>('/api/metrics/baseline'),
+  stability: () => request<StabilityMetrics>('/api/metrics/stability'),
+  autonomy: () => request<AutonomyMetrics>('/api/metrics/autonomy'),
+  accuracy: () => request<AccuracyMetrics>('/api/metrics/accuracy'),
 };
-
-export const categories = [
-  'Beverages',
-  'Snacks',
-  'Coffee & Tea',
-  'Household',
-  'Personal Care',
-];

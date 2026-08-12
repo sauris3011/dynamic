@@ -1,3 +1,4 @@
+import { BANDS, BAND_SHORT } from '../lib/labels';
 import type { Band } from '../lib/types';
 
 /**
@@ -5,13 +6,16 @@ import type { Band } from '../lib/types';
  *
  * This is not decoration. Around 8% of men have some form of colour vision
  * deficiency, and amber/red is exactly the pair they most often cannot
- * separate. A reviewer who cannot distinguish "auto-approve" from "escalate" is
- * being shown the opposite of what the autonomy model intends. The glyph
- * carries the meaning; the colour reinforces it for everyone else.
+ * separate. A reviewer who cannot distinguish "decided automatically" from
+ * "blocked" is being shown the opposite of what the autonomy model intends. The
+ * glyph carries the meaning; the colour reinforces it for everyone else.
  *
- *   square   Auto-approve   (settled, closed)
- *   circle   Review         (open, needs a look)
- *   diamond  Escalate       (hazard convention)
+ *   square   decided automatically   (settled, closed)
+ *   circle   needs your decision     (open, needs a look)
+ *   diamond  blocked                 (hazard convention)
+ *
+ * The wording lives in `labels.ts` — this file owns the shapes and colours only,
+ * so a rename never has to happen in two places.
  */
 
 const SHAPE: Record<Band, string> = {
@@ -26,18 +30,6 @@ const COLOUR: Record<Band, string> = {
   escalate: 'bg-danger',
 };
 
-const TEXT: Record<Band, string> = {
-  auto_approve: 'text-accent',
-  review: 'text-info',
-  escalate: 'text-danger',
-};
-
-const LABEL: Record<Band, string> = {
-  auto_approve: 'Auto-approve',
-  review: 'Review',
-  escalate: 'Escalate',
-};
-
 export function BandGlyph({ band, size = 9 }: { band: Band; size?: number }) {
   return (
     <span
@@ -48,41 +40,15 @@ export function BandGlyph({ band, size = 9 }: { band: Band; size?: number }) {
   );
 }
 
-export function BandIndicator({
-  band,
-  reason,
-  compact = false,
-}: {
-  band: Band;
-  reason?: string;
-  compact?: boolean;
-}) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <span className="pt-1">
-        <BandGlyph band={band} />
-      </span>
-      <div className="min-w-0">
-        <div className={`text-xs tracking-wide ${TEXT[band]}`}>{LABEL[band]}</div>
-        {reason && !compact && (
-          <div className="text-tiny text-faint leading-snug">{reason}</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function BandLegend() {
   return (
     <div className="flex flex-wrap gap-4 text-tiny text-muted">
-      {(['auto_approve', 'review', 'escalate'] as Band[]).map((band) => (
+      {BANDS.map((band) => (
         <span key={band} className="flex items-center gap-2">
           <BandGlyph band={band} />
-          {LABEL[band]}
+          {BAND_SHORT[band]}
         </span>
       ))}
     </div>
   );
 }
-
-export { LABEL as bandLabels, COLOUR as bandColours, TEXT as bandTextColours };

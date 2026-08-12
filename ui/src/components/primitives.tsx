@@ -1,4 +1,6 @@
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { ChevronRight, Search, X } from 'lucide-react';
 
 /** Shared layout and display primitives. No business logic lives here. */
 
@@ -172,6 +174,202 @@ export function Spinner({ label = 'Loading' }: { label?: string }) {
         aria-hidden
       />
       {label}
+    </div>
+  );
+}
+
+/**
+ * A labelled number with an optional sub-line. Three separate copies of this
+ * existed as route-local components before; it is the same thing every time.
+ */
+export function Figure({
+  label,
+  value,
+  detail,
+  tone = 'ink',
+  size = 'md',
+}: {
+  label: string;
+  value: ReactNode;
+  detail?: ReactNode;
+  tone?: 'ink' | 'accent' | 'info' | 'danger' | 'muted';
+  size?: 'sm' | 'md' | 'lg';
+}) {
+  const colour = {
+    ink: 'text-ink',
+    accent: 'text-accent',
+    info: 'text-info',
+    danger: 'text-danger',
+    muted: 'text-muted',
+  }[tone];
+  const scale = { sm: 'text-sm', md: 'text-lg', lg: 'text-3xl' }[size];
+
+  return (
+    <div>
+      <div className="label">{label}</div>
+      <div className={`${scale} font-semibold tabular-nums mt-0.5 ${colour}`}>{value}</div>
+      {detail && <div className="text-tiny text-faint mt-0.5 leading-snug">{detail}</div>}
+    </div>
+  );
+}
+
+/**
+ * A collapsed section. The redesign leans on this heavily: anything an engineer
+ * would want but a stakeholder would not is present and one click away, rather
+ * than either deleted or permanently on screen.
+ */
+export function Disclosure({
+  title,
+  hint,
+  defaultOpen = false,
+  right,
+  children,
+}: {
+  title: ReactNode;
+  hint?: string;
+  defaultOpen?: boolean;
+  right?: ReactNode;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const panelId = useId();
+
+  return (
+    <div className="border border-hairline rounded-xl overflow-hidden">
+      <div className="flex items-center gap-3 bg-surface">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="flex-1 flex items-center gap-2 px-4 py-3 text-left hover:bg-raised
+                     transition-colors min-w-0"
+        >
+          <ChevronRight
+            size={13}
+            aria-hidden
+            className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`}
+          />
+          <span className="text-xs font-semibold text-ink truncate">{title}</span>
+          {hint && <span className="text-tiny text-faint truncate">{hint}</span>}
+        </button>
+        {right && <div className="pr-4 shrink-0">{right}</div>}
+      </div>
+      {open && (
+        <div id={panelId} className="px-4 py-4 border-t border-hairline">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Debounced search input. Reports through `onChange` after the user stops
+ * typing, so a keystroke never triggers a filter pass or a request; `value` is
+ * the committed term and the box keeps its own draft.
+ */
+export function SearchBox({
+  value,
+  onChange,
+  placeholder = 'Search',
+  delayMs = 200,
+  className = '',
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+  delayMs?: number;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // Accept resets from the parent (a cleared filter, a restored URL) without
+  // fighting the user mid-keystroke.
+  useEffect(() => setDraft(value), [value]);
+
+  useEffect(() => {
+    if (draft === value) return;
+    const timer = setTimeout(() => onChangeRef.current(draft), delayMs);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, delayMs]);
+
+  return (
+    <div className={`relative ${className}`}>
+      <Search
+        size={13}
+        aria-hidden
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none"
+      />
+      <input
+        type="search"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="input w-full pl-8 pr-8"
+      />
+      {draft && (
+        <button
+          type="button"
+          onClick={() => setDraft('')}
+          aria-label="Clear search"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-ink"
+        >
+          <X size={13} aria-hidden />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Table chrome: sticky head, consistent row rules, and — the part that matters —
+ * an honest footer when the view is showing fewer rows than exist. A silently
+ * truncated list is worse than no list.
+ */
+export function DataTable({
+  head,
+  children,
+  shown,
+  total,
+  narrowHint = 'narrow it with search',
+  maxHeight,
+}: {
+  head: ReactNode;
+  children: ReactNode;
+  shown?: number;
+  total?: number;
+  narrowHint?: string;
+  maxHeight?: string;
+}) {
+  const truncated = shown !== undefined && total !== undefined && shown < total;
+
+  // `h-full` + `flex-1 min-h-0` lets the scroll area fill a height-constrained
+  // parent (the Review screen fills the viewport) while still collapsing to its
+  // content when the parent has no height of its own (a card on Products).
+  return (
+    <div className="flex flex-col min-h-0 h-full">
+      <div
+        className="flex-1 min-h-0 overflow-auto"
+        style={maxHeight ? { maxHeight } : undefined}
+      >
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-surface z-10">
+            <tr className="text-left label border-b border-line">{head}</tr>
+          </thead>
+          <tbody>{children}</tbody>
+        </table>
+      </div>
+      {truncated && (
+        <div className="shrink-0 text-tiny text-faint pt-2.5 border-t border-hairline mt-1">
+          Showing {shown!.toLocaleString('en-GB')} of {total!.toLocaleString('en-GB')} —{' '}
+          {narrowHint}.
+        </div>
+      )}
     </div>
   );
 }

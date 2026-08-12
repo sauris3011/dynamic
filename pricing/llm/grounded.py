@@ -39,16 +39,7 @@ T = TypeVar("T", bound=BaseModel)
 # calls that cannot use them.
 ROLE_RETRIEVAL_K = {"router": 0, "narrator": 1, "analyst": 2, "strategist": 3}
 
-# Two sources of truth reach the model and it must not confuse them. The
-# figures in <task> are *computed* by pricing.analytics — elasticity,
-# simulated distributions, band assignments — and are authoritative. The
-# retrieved documents are policy and market context.
-#
-# An earlier version said only "ground every factual claim in the context",
-# and stricter models read the computed figures as unsupported claims: run
-# summaries came back as "these figures are not present in the provided
-# documents and cannot be verified" instead of summarising. That is a refusal
-# dressed as diligence. The distinction below is what stops it.
+# Figures in <task> are authoritative. Documents are for policy/market background.
 GROUNDING_HEADER = (
     "You are given verified context from the retailer's own documents.\n"
     "- The figures and findings stated in the task have already been computed "
@@ -96,18 +87,16 @@ class GatewayUnavailable(RuntimeError):
 _model_cache: dict[str, Any] = {}
 
 
+def _normalize_base_url(url: str) -> str:
+    u = (url or "").strip().rstrip("/")
+    if u.endswith("/chat/completions"):
+        u = u[:-17].rstrip("/")
+    if u and not u.endswith("/v1") and ("/v1/" not in u):
+        u = f"{u}/v1"
+    return u
+
+
 def _build_model(alias: str, temperature: float | None):
-    """Construct a chat model via LangChain `init_chat_model` (D3).
-
-    The LiteLLM gateway is OpenAI-compatible, so the provider is pinned to
-    `openai` and pointed at the gateway base URL. Swapping providers is a config
-    change, not a code change (NFR-032).
-
-    `temperature=None` omits the parameter entirely and lets the model use its
-    own default. That is not the same as sending a value: the gpt-5 family
-    rejects any explicit temperature other than 1.0 with a 400, so omission is
-    the only thing guaranteed to be accepted by every model behind the gateway.
-    """
     key = f"{alias}:{temperature}"
     if key in _model_cache:
         return _model_cache[key]
@@ -122,7 +111,7 @@ def _build_model(alias: str, temperature: float | None):
 
     kwargs: dict[str, Any] = {
         "model_provider": "openai",
-        "base_url": s.llm_gateway_url.rstrip("/"),
+        "base_url": _normalize_base_url(s.llm_gateway_url),
         "api_key": s.llm_gateway_api_key or "not-needed",
         "http_client": http_client,
     }
@@ -168,8 +157,8 @@ def _compose_prompt(
     wait=wait_exponential(multiplier=0.6, min=0.6, max=6),
     reraise=True,
 )
-def _invoke(model, prompt: str):
-    return model.invoke(prompt)
+def _invoke(model, prompt: str, config: dict[str, Any] | None = None):
+    return model.invoke(prompt, config=config) if config else model.invoke(prompt)
 
 
 def _accumulate_usage(result: LLMResult, message: Any) -> None:
@@ -197,17 +186,17 @@ def _accumulate_usage(result: LLMResult, message: Any) -> None:
     )
 
 
+def _extract_json_text(text: str) -> str:
+    """Strip DeepSeek <think> tags and markdown code blocks."""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        return match.group(1)
+    match_obj = re.search(r"\{.*\}", text, re.DOTALL)
+    return match_obj.group(0) if match_obj else text
+
+
 def _structured_model(model, schema):
-    """Bind the schema, asking for the raw message alongside the parsed object.
-
-    `include_raw=True` is what makes token accounting possible at all: without
-    it `with_structured_output` returns the parsed Pydantic object and the
-    `AIMessage` carrying `usage_metadata` is discarded, so every structured
-    call reports zero tokens. Since the strategist does the bulk of the work,
-    that silently hid most of the run's spend from the header monitor (FR-065).
-
-    Falls back to the plain binding if a wrapper does not accept the argument.
-    """
     try:
         return model.with_structured_output(
             schema, method="json_schema", include_raw=True
@@ -216,66 +205,56 @@ def _structured_model(model, schema):
         return model.with_structured_output(schema, method="json_schema"), False
 
 
-def _invoke_structured(structured, prompt: str, result: LLMResult):
-    """Return (parsed, error) and bank the token usage.
-
-    `include_raw=True` changes the failure contract: a schema violation comes
-    back as `parsing_error` instead of raising. Both shapes are handled because
-    transport and API errors still raise, and the plain binding still raises for
-    everything.
-    """
+def _invoke_structured(
+    structured, prompt: str, result: LLMResult, config: dict[str, Any] | None = None,
+):
     try:
-        output = structured.invoke(prompt)
-    except (ValidationError, ValueError) as exc:
+        output = structured.invoke(prompt, config=config) if config else structured.invoke(prompt)
+    except (ValidationError, ValueError, TypeError, AttributeError) as exc:
         return None, exc
 
     if isinstance(output, dict):
         _accumulate_usage(result, output.get("raw"))
         return output.get("parsed"), output.get("parsing_error")
 
-    # Plain binding: the parsed object came back directly, no usage available.
     return output, None
 
 
-def _execute(model, prompt: str, schema, result: LLMResult) -> None:
-    """Invoke the model and fill `result`. Raises on failure.
-
-    Shared by both temperature attempts so a retry cannot drift from the first
-    try — structured output, the repair-retry, and token accounting all have to
-    behave identically whichever attempt succeeds.
-    """
+def _execute(
+    model, prompt: str, schema, result: LLMResult, config: dict[str, Any] | None = None,
+) -> None:
     if schema is not None:
-        structured, _ = _structured_model(model, schema)
-        parsed, error = _invoke_structured(structured, prompt, result)
+        try:
+            structured, _ = _structured_model(model, schema)
+            parsed, error = _invoke_structured(structured, prompt, result, config)
 
-        if error is not None or parsed is None:
-            # Exactly one repair-retry, with the validation error fed back
-            # (PRD 4.3). After this the call fails cleanly rather than
-            # returning an unvalidated object.
-            logger.warning("llm.repair_retry", error=str(error)[:300])
-            repair = (
-                f"{prompt}\n\n<validation_error>\nYour previous response failed "
-                f"schema validation:\n{error}\nReturn ONLY valid JSON "
-                f"matching the schema.\n</validation_error>"
-            )
-            parsed, error = _invoke_structured(structured, repair, result)
-            result.repaired = True
-            if error is not None:
-                raise error if isinstance(error, Exception) else ValueError(str(error))
-            if parsed is None:
-                raise ValueError(
-                    "Model returned no parsable object after one repair attempt."
+            if error is not None or parsed is None:
+                # Exactly one repair-retry (PRD 4.3)
+                logger.warning("llm.repair_retry", error=str(error)[:300])
+                repair = (
+                    f"{prompt}\n\n<validation_error>\nYour previous response failed "
+                    f"schema validation:\n{error}\nReturn ONLY valid JSON "
+                    f"matching the schema.\n</validation_error>"
                 )
+                parsed, error = _invoke_structured(structured, repair, result, config)
+                result.repaired = True
+                if error is not None:
+                    raise error if isinstance(error, Exception) else ValueError(str(error))
+                if parsed is None:
+                    raise ValueError("Model returned no parsable object after one repair attempt.")
+        except (TypeError, AttributeError):
+            # Fallback for local models (e.g. DeepSeek-R1 / LM Studio) without native json_schema support
+            response = _invoke(model, prompt, config)
+            raw_text = getattr(response, "content", str(response))
+            _accumulate_usage(result, response)
+            cleaned = _extract_json_text(raw_text)
+            parsed = schema.model_validate_json(cleaned)
 
         result.data = parsed
-        result.text = (
-            parsed.model_dump_json()
-            if hasattr(parsed, "model_dump_json")
-            else str(parsed)
-        )
+        result.text = parsed.model_dump_json() if hasattr(parsed, "model_dump_json") else str(parsed)
         return
 
-    response = _invoke(model, prompt)
+    response = _invoke(model, prompt, config)
     result.text = getattr(response, "content", str(response))
     _accumulate_usage(result, response)
 
@@ -338,6 +317,9 @@ def call(
     resolved = get_settings().llm_temperature if temperature is None else temperature
 
     result = LLMResult(model=alias, role=role, citations=citations)
+    tracing_config = telemetry.langchain_config(
+        run_id=run_id, user_id="system", tags=["grounded", role],
+    )
     for attempt in (resolved, None):
         result = LLMResult(model=alias, role=role, citations=citations)
         try:
@@ -350,7 +332,7 @@ def call(
             return result
 
         try:
-            _execute(model, prompt, schema, result)
+            _execute(model, prompt, schema, result, tracing_config)
             break
         except Exception as exc:  # noqa: BLE001
             if attempt is not None and _is_temperature_rejection(exc):

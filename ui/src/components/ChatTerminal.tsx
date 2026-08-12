@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, ErrorInfo, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
 
 import { api } from '../lib/api';
 import type { ChatReply, ChatStarter } from '../lib/types';
+import { MarkdownInline, MarkdownText } from './MarkdownText';
 import { Pill } from './primitives';
 
 interface AnalystTurn {
@@ -29,6 +30,43 @@ interface AssistantTurn {
 }
 
 type Turn = AnalystTurn | AssistantTurn;
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  errorText?: string;
+}
+
+class TurnErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, errorText: error?.message || 'Rendering error' };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Turn rendering error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex justify-start">
+          <div className="max-w-[92%] rounded-xl rounded-bl-sm border border-danger/40 bg-danger-wash text-danger px-3 py-2.5 text-xs">
+            {this.state.errorText || 'Unable to render message response.'}
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const INTENT_LABEL: Record<string, string> = {
   product: 'Product',
@@ -163,17 +201,19 @@ export function ChatTerminal() {
           >
             {turns.length === 0 && <Opening starters={starters} onPick={send} />}
 
-            {turns.map((turn) =>
-              turn.role === 'analyst' ? (
-                <div key={turn.id} className="flex justify-end">
-                  <div className="max-w-[86%] rounded-xl rounded-br-sm px-3 py-2.5 text-xs leading-relaxed border bg-accent-wash border-accent/40 text-ink">
-                    {turn.text}
+            {turns.map((turn) => (
+              <TurnErrorBoundary key={turn.id}>
+                {turn.role === 'analyst' ? (
+                  <div className="flex justify-end">
+                    <div className="max-w-[86%] rounded-xl rounded-br-sm px-3 py-2.5 text-xs leading-relaxed border bg-accent-wash border-accent/40 text-ink">
+                      {turn.text}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <Answer key={turn.id} turn={turn} onPick={send} />
-              ),
-            )}
+                ) : (
+                  <Answer turn={turn} onPick={send} />
+                )}
+              </TurnErrorBoundary>
+            ))}
 
             {busy && (
               <div className="flex items-center gap-2.5 text-xs text-faint">
@@ -291,45 +331,63 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
   }
   if (!reply) return null;
 
+  const keyPoints = Array.isArray(reply.key_points) ? reply.key_points : [];
+  const caveats = Array.isArray(reply.caveats) ? reply.caveats : [];
+  const skus = Array.isArray(reply.scope?.skus) ? reply.scope.skus : [];
+  const unsupported = Array.isArray(reply.unsupported_figures) ? reply.unsupported_figures : [];
+  const facts = Array.isArray(reply.facts) ? reply.facts : [];
+  const citations = Array.isArray(reply.citations) ? reply.citations : [];
+  const sources = Array.isArray(reply.sources) ? reply.sources : [];
+  const suggestions = Array.isArray(reply.suggestions) ? reply.suggestions : [];
+
   return (
     <div className="space-y-2">
       <div className="flex justify-start">
-        <div className="max-w-[92%] rounded-xl rounded-bl-sm px-3 py-2.5 text-xs leading-relaxed border bg-raised border-line text-muted whitespace-pre-line">
-          {reply.answer}
+        <div className="max-w-[92%] rounded-xl rounded-bl-sm px-3 py-2.5 text-xs border bg-raised border-line text-muted">
+          <MarkdownText text={reply.answer || ''} />
         </div>
       </div>
 
-      {reply.key_points.length > 0 && (
+      {keyPoints.length > 0 && (
         <ul className="ml-1 space-y-1">
-          {reply.key_points.map((point) => (
-            <li key={point} className="text-xs text-muted flex gap-2">
-              <span className="text-accent mt-1.5 w-1 h-1 rounded-full bg-accent shrink-0" aria-hidden />
-              {point}
-            </li>
-          ))}
+          {keyPoints.map((point, index) => {
+            const strPoint = typeof point === 'string' ? point : String(point ?? '');
+            return (
+              <li key={`${index}-${strPoint.slice(0, 20)}`} className="text-xs text-muted flex gap-2">
+                <span className="text-accent mt-1.5 w-1 h-1 rounded-full bg-accent shrink-0" aria-hidden />
+                <div className="flex-1">
+                  <MarkdownInline text={strPoint} />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {reply.caveats.map((caveat) => (
-        <div
-          key={caveat}
-          className="flex gap-2 items-start text-micro text-faint border border-dashed border-line rounded-lg px-2.5 py-2"
-        >
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden />
-          <span>{caveat}</span>
-        </div>
-      ))}
+      {caveats.map((caveat, index) => {
+        const strCaveat = typeof caveat === 'string' ? caveat : String(caveat ?? '');
+        return (
+          <div
+            key={`${index}-${strCaveat.slice(0, 20)}`}
+            className="flex gap-2 items-start text-micro text-faint border border-dashed border-line rounded-lg px-2.5 py-2"
+          >
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden />
+            <span><MarkdownInline text={strCaveat} /></span>
+          </div>
+        );
+      })}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Pill tone="info">{INTENT_LABEL[reply.intent] ?? reply.intent}</Pill>
-        {reply.scope.skus.map((sku) => (
-          <Pill key={sku}>{sku}</Pill>
-        ))}
+        {skus.map((sku, index) => {
+          const strSku = typeof sku === 'string' ? sku : String(sku ?? '');
+          return <Pill key={`${index}-${strSku}`}>{strSku}</Pill>;
+        })}
         {!reply.narrated && <Pill>computed evidence</Pill>}
-        {reply.unsupported_figures.length > 0 && (
-          <Pill tone="danger">{reply.unsupported_figures.length} unverified figure(s)</Pill>
+        {unsupported.length > 0 && (
+          <Pill tone="danger">{unsupported.length} unverified figure(s)</Pill>
         )}
-        {reply.facts.length > 0 && (
+        {facts.length > 0 && (
           <button
             type="button"
             onClick={() => setOpenEvidence((current) => !current)}
@@ -337,7 +395,7 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
             aria-expanded={openEvidence}
           >
             {openEvidence ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
-            Evidence ({reply.facts.length})
+            Evidence ({facts.length})
           </button>
         )}
       </div>
@@ -345,44 +403,56 @@ function Answer({ turn, onPick }: { turn: AssistantTurn; onPick: (q: string) => 
       {openEvidence && (
         <div className="rounded-lg border border-line bg-surface px-3 py-2.5 space-y-2">
           <ul className="space-y-1">
-            {reply.facts.map((fact, index) => (
-              <li key={`${index}-${fact.slice(0, 24)}`} className="text-micro text-muted leading-snug">
-                {fact}
-              </li>
-            ))}
+            {facts.map((fact, index) => {
+              const strFact = typeof fact === 'string' ? fact : String(fact ?? '');
+              return (
+                <li key={`${index}-${strFact.slice(0, 24)}`} className="text-micro text-muted leading-snug">
+                  <MarkdownInline text={strFact} />
+                </li>
+              );
+            })}
           </ul>
-          {reply.citations.length > 0 && (
+          {citations.length > 0 && (
             <div className="border-t border-hairline pt-2 space-y-1">
               <div className="label">Cited sources</div>
-              {reply.citations.map((citation) => (
-                <div key={citation.id} className="text-micro text-faint">
-                  <span className="text-muted">{citation.id}</span> — {citation.excerpt}
-                </div>
-              ))}
+              {citations.map((citation, index) => {
+                if (!citation) return null;
+                const id = citation.id || `Citation-${index + 1}`;
+                const excerpt = citation.excerpt || '';
+                return (
+                  <div key={id} className="text-micro text-faint">
+                    <span className="text-muted">{id}</span> — {excerpt}
+                  </div>
+                );
+              })}
             </div>
           )}
           <div className="border-t border-hairline pt-2 text-micro text-faint">
-            {reply.sources.join(' · ')}
+            {sources.filter(Boolean).map(String).join(' · ')}
             {reply.model && ` · ${reply.model}`}
-            {` · ${reply.latency_ms} ms`}
-            {reply.tokens > 0 && ` · ${reply.tokens.toLocaleString()} tokens`}
+            {` · ${reply.latency_ms || 0} ms`}
+            {typeof reply.tokens === 'number' && reply.tokens > 0 && ` · ${reply.tokens.toLocaleString()}`}
           </div>
         </div>
       )}
 
-      {reply.suggestions.length > 0 && (
+      {suggestions.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {reply.suggestions.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              onClick={() => onPick(suggestion)}
-              className="text-tiny text-faint border border-line rounded-md px-2 py-1
-                         hover:text-ink hover:border-accent/60 transition-colors text-left"
-            >
-              {suggestion}
-            </button>
-          ))}
+          {suggestions.map((suggestion, index) => {
+            const strSugg = typeof suggestion === 'string' ? suggestion : String(suggestion ?? '');
+            if (!strSugg) return null;
+            return (
+              <button
+                key={`${index}-${strSugg}`}
+                type="button"
+                onClick={() => onPick(strSugg)}
+                className="text-tiny text-faint border border-line rounded-md px-2 py-1
+                           hover:text-ink hover:border-accent/60 transition-colors text-left"
+              >
+                {strSugg}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

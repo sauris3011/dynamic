@@ -20,6 +20,7 @@ from pricing.llm.schemas import (
     RunNarrative,
     ViolationExplanation,
 )
+from pricing.pipeline import progress
 from pricing.pipeline.state import RunState, SkuAnalysis
 
 logger = get_logger("pricing.pipeline.narration")
@@ -127,7 +128,14 @@ def narrate_recommendations(state: RunState) -> None:
         reverse=True,
     )[:MAX_NARRATED_SKUS]
 
-    for a in ranked:
+    # These are sequential gateway calls and are routinely the slowest part of a
+    # run by a wide margin. Reporting each one is the difference between a
+    # visible six-minute stage and a screen that looks hung.
+    progress.stage(state.run_id, "narration", total=len(ranked),
+                   detail=progress.STAGE_DETAIL["narration"])
+
+    for done, a in enumerate(ranked, start=1):
+        progress.item(state.run_id, "narration", done, len(ranked), detail=a.sku)
         if a.optimization is None:
             continue
         result = grounded.call(
@@ -150,6 +158,7 @@ def narrate_recommendations(state: RunState) -> None:
         if result.ok and result.data:
             data = result.data
             a.rationale = data.rationale
+            a.narrated = True
             # Keep only citations that map to context actually retrieved for
             # this call â€” a model-invented id is not evidence (FR-023).
             valid = {c["id"] for c in result.citations}
@@ -157,6 +166,13 @@ def narrate_recommendations(state: RunState) -> None:
                            (not data.citations or c["id"] in data.citations)] \
                 or result.citations
             _account(state, result)
+
+    # Reported explicitly rather than inferred from the stage's item count: when
+    # the gateway is unavailable this function returns early and never runs, so
+    # an inferred number would claim written explanations that do not exist.
+    progress.update(
+        state.run_id, narrated=sum(1 for a in ranked if a.narrated)
+    )
 
 
 def explain_violations(state: RunState) -> None:
@@ -171,7 +187,11 @@ def explain_violations(state: RunState) -> None:
         a for a in state.priced
         if a.compliance and not a.compliance.passed
     ][:10]
-    for a in blocked:
+    for done, a in enumerate(blocked, start=1):
+        progress.update(
+            state.run_id,
+            detail=f"Explaining why {a.sku} was blocked ({done} of {len(blocked)}).",
+        )
         result = grounded.call(
             role="strategist",
             system=(

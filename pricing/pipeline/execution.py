@@ -56,9 +56,10 @@ def record_decision(
             "override": "overridden", "revert": "reverted",
         }.get(action, "pending")
         conn.execute(
-            "UPDATE recommendations SET status = ?, final_price = COALESCE(?, final_price)"
-            " WHERE rec_id = ?",
-            (status, price, rec_id),
+            "UPDATE recommendations SET status = ?, final_price = "
+            "CASE WHEN ? = 'approve' AND final_price IS NOT NULL THEN final_price "
+            "ELSE COALESCE(?, final_price) END WHERE rec_id = ?",
+            (status, action, price, rec_id),
         )
         audit(
             conn, actor=actor, event_type=f"recommendation_{action}",

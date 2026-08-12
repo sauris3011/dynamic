@@ -73,6 +73,8 @@ class SkuAnalysis:
     baseline_price: float | None = None
     rationale: str = ""
     citations: list[dict] = field(default_factory=list)
+    #: True when a model wrote `rationale`; False means the computed fallback.
+    narrated: bool = False
     confidence: float = 0.0
     skipped: str = ""                      # non-empty means excluded, with reason
 

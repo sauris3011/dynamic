@@ -18,6 +18,7 @@ from pricing.chat import (
     analysis_facts,
     answer as answer_mod,
     catalog as catalog_mod,
+    guardrails,
     history_facts,
     platform_facts,
     product_facts,
@@ -38,6 +39,12 @@ MAX_QUESTION_CHARS = 600
 
 def _gather(route: ChatRoute, question: str, context: dict) -> FactPack:
     catalog = catalog_mod.snapshot()
+    if route.intent == "unsupported":
+        return FactPack(
+            headline="Out of scope query",
+            lines=[guardrails.UNSUPPORTED_SCOPE_REFUSAL],
+            shortfall=guardrails.UNSUPPORTED_SCOPE_REFUSAL,
+        )
     if route.intent == "what_if":
         return whatif_facts.build(route, catalog, question)
     if route.intent == "history":
@@ -46,9 +53,6 @@ def _gather(route: ChatRoute, question: str, context: dict) -> FactPack:
         return analysis_facts.build(route, question, context)
     if route.intent == "product":
         pack = product_facts.build(route, catalog)
-        # A product question about something the catalog cannot resolve is often
-        # really a question about the platform ("what do you know about
-        # pricing?"). Answering "no such SKU" to that is a non-sequitur.
         if not pack.usable and not route.skus and not route.category:
             return platform_facts.build(route, question)
         return pack
@@ -66,6 +70,34 @@ def ask(
     question = (question or "").strip()[:MAX_QUESTION_CHARS]
     context = {k: v for k, v in (context or {}).items() if v}
     catalog = catalog_mod.snapshot()
+
+    flagged, refusal = guardrails.check_moderation(question)
+    if flagged:
+        payload = {
+            "question": question,
+            "intent": "unsupported",
+            "router": "keyword",
+            "headline": "Input Moderation Flagged",
+            "answer": refusal or guardrails.PROFANE_REFUSAL,
+            "key_points": ["Question flagged by input moderation guardrails."],
+            "caveats": ["Please keep questions professional and focused on retail pricing."],
+            "facts": [],
+            "data": {},
+            "sources": [],
+            "citations": [],
+            "shortfall": refusal or guardrails.PROFANE_REFUSAL,
+            "unsupported_figures": [],
+            "suggestions": suggestions_mod.starters(4),
+            "narrated": False,
+            "model": "",
+            "cache_hit": "miss",
+            "tokens": 0,
+            "cost_usd": 0.0,
+            "latency_ms": int((time.time() - started) * 1000),
+            "scope": {"skus": [], "category": None, "horizon_days": 0, "days_back": 0},
+        }
+        _record(payload, actor)
+        return payload
 
     route, router_used = routing.route(question, history, context, catalog.categories)
     pack = _gather(route, question, context)

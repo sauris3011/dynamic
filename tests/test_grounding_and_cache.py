@@ -300,11 +300,17 @@ def test_secrets_and_pii_are_redacted_from_logs():
         "note": "contact priya@retailer.example for the key",
         "headers": {"Authorization": "Bearer abcdef0123456789"},
         "price": 4.99,
+        "tokens_in": 12,
+        "tokens_out": 8,
+        "tokens_total": 20,
     })
     assert event["api_key"] == "[REDACTED]"
     assert "priya@retailer.example" not in event["note"]
     assert event["headers"]["Authorization"] == "[REDACTED]"
     assert event["price"] == 4.99, "redaction damaged a legitimate field"
+    assert event["tokens_in"] == 12
+    assert event["tokens_out"] == 8
+    assert event["tokens_total"] == 20
 
 
 def test_telemetry_inherits_the_same_redaction(tmp_path, monkeypatch):

@@ -132,10 +132,13 @@ def render(question: str, pack: FactPack, history: list[dict] | None = None) -> 
     )
     if not (result.ok and result.data):
         logger.info("chat.answer_fallback", error=result.error[:200])
+        err_msg = result.error or "no response"
+        if any(tok in err_msg for tok in ("TypeError", "ValueError", "AttributeError", "KeyError", "IndexError", "Exception", "NoneType")):
+            err_msg = "language model service error"
         return {
             "answer": pack.render(),
             "key_points": [],
-            "caveats": [f"Written answer unavailable ({result.error or 'no response'}); "
+            "caveats": [f"Written answer unavailable ({err_msg}); "
                         "showing the computed evidence instead."],
             "citations": result.citations, "narrated": False, "model": result.model,
             "cache_hit": result.cache_hit, "tokens": result.tokens_total,

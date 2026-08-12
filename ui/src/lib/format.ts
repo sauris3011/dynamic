@@ -36,12 +36,6 @@ export const num = (v: number | null | undefined, digits = 0) =>
     maximumFractionDigits: digits,
   });
 
-export const clock = (iso: string | null | undefined) => {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString('en-GB', { hour12: false });
-};
-
 export const datetime = (iso: string | null | undefined) => {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -61,10 +55,6 @@ export const countdown = (seconds: number) => {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
-
-export const bandLabel = (band: string) =>
-  ({ auto_approve: 'Auto-approve', review: 'Review', escalate: 'Escalate' })[band] ??
-  band;
 
 export const titleCase = (s: string) =>
   s.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

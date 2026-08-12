@@ -321,3 +321,16 @@ def test_rounding_is_not_mistaken_for_invention():
 
     pack = FactPack(lines=["expected revenue 2,170.28 against 2,241.12 today"])
     assert unsupported_figures("about 2,170 versus 2,241", pack, "") == []
+
+
+def test_abusive_input_is_moderated_with_polite_refusal(stack):
+    body = ask(stack, "You are a shit")
+    assert body["intent"] == "unsupported"
+    assert body["router"] == "keyword"
+    assert "professional" in body["answer"].lower() or "retail" in body["answer"].lower()
+
+
+def test_off_topic_question_returns_unsupported_scope_message(stack):
+    body = ask(stack, "Who was the 16th President of the United States?")
+    assert body["intent"] == "unsupported"
+    assert "retail pricing" in body["shortfall"].lower() or "not supported" in body["shortfall"].lower()
